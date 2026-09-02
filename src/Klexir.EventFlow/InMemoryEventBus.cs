@@ -4,17 +4,35 @@ using Klexir.EventFlow.Abstractions;
 namespace Klexir.EventFlow;
 
 /// <summary>
-/// Thread-safe registration with deterministic, sequential handler invocation per publication.
-/// This is the Stage 1 baseline; asynchronous concurrency and resilience policies are separate increments.
+/// Thread-safe registration with deterministic handler invocation per publication.
+/// Resilience (timeout, retry, backpressure, dead-lettering) is opt-in via <see cref="EventBusResilienceOptions"/>;
+/// with defaults, behavior matches the Stage 1 baseline exactly.
 /// </summary>
 public sealed class InMemoryEventBus : IEventBus
 {
     private readonly ConcurrentDictionary<Type, IHandlerInvoker[]> _handlers = new();
     private readonly EventDispatchMode _dispatchMode;
+    private readonly IDeadLetterQueue? _deadLetterQueue;
+    private readonly EventBusResilienceOptions _resilience;
+    private readonly ChannelBackpressureGate? _backpressureGate;
 
-    public InMemoryEventBus(EventDispatchMode dispatchMode = EventDispatchMode.Sequential)
+    public InMemoryEventBus(
+        EventDispatchMode dispatchMode = EventDispatchMode.Sequential,
+        IDeadLetterQueue? deadLetterQueue = null,
+        EventBusResilienceOptions? resilience = null)
     {
         _dispatchMode = dispatchMode;
+        _deadLetterQueue = deadLetterQueue;
+        _resilience = resilience ?? new EventBusResilienceOptions();
+
+        if (_resilience.MaxAttempts < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(resilience), _resilience.MaxAttempts, "MaxAttempts must be at least 1.");
+        }
+
+        _backpressureGate = _resilience.MaxConcurrentDispatches is { } maxConcurrency
+            ? new ChannelBackpressureGate(maxConcurrency)
+            : null;
     }
 
     public void Register<TEvent>(IEventHandler<TEvent> handler) where TEvent : IEvent
@@ -39,7 +57,7 @@ public sealed class InMemoryEventBus : IEventBus
 
         if (_dispatchMode is EventDispatchMode.Parallel)
         {
-            await Task.WhenAll(handlers.Select(handler => handler.HandleAsync(@event, cancellationToken).AsTask()))
+            await Task.WhenAll(handlers.Select(handler => DispatchWithResilienceAsync(handler, @event, cancellationToken).AsTask()))
                 .ConfigureAwait(false);
             return;
         }
@@ -47,17 +65,90 @@ public sealed class InMemoryEventBus : IEventBus
         foreach (var handler in handlers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await handler.HandleAsync(@event, cancellationToken).ConfigureAwait(false);
+            await DispatchWithResilienceAsync(handler, @event, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask DispatchWithResilienceAsync(IHandlerInvoker handler, IEvent @event, CancellationToken cancellationToken)
+    {
+        if (_backpressureGate is not null)
+        {
+            await _backpressureGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            var attempt = 0;
+            while (true)
+            {
+                attempt++;
+                try
+                {
+                    await InvokeWithTimeoutAsync(handler, @event, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    if (attempt < _resilience.MaxAttempts)
+                    {
+                        if (_resilience.RetryDelay > TimeSpan.Zero)
+                        {
+                            await Task.Delay(_resilience.RetryDelay, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        continue;
+                    }
+
+                    if (_deadLetterQueue is null)
+                    {
+                        throw;
+                    }
+
+                    await _deadLetterQueue.EnqueueAsync(
+                        new DeadLetterEnvelope(@event, handler.HandlerTypeName, ex.Message, attempt, DateTimeOffset.UtcNow),
+                        cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+        finally
+        {
+            _backpressureGate?.Release();
+        }
+    }
+
+    private async Task InvokeWithTimeoutAsync(IHandlerInvoker handler, IEvent @event, CancellationToken cancellationToken)
+    {
+        if (_resilience.HandlerTimeout is not { } timeout)
+        {
+            await handler.HandleAsync(@event, cancellationToken).AsTask().ConfigureAwait(false);
+            return;
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+
+        try
+        {
+            await handler.HandleAsync(@event, timeoutCts.Token).AsTask().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Handler '{handler.HandlerTypeName}' timed out after {timeout}.");
         }
     }
 
     private interface IHandlerInvoker
     {
+        string HandlerTypeName { get; }
+
         ValueTask HandleAsync(IEvent @event, CancellationToken cancellationToken);
     }
 
     private sealed class HandlerInvoker<TEvent>(IEventHandler<TEvent> handler) : IHandlerInvoker where TEvent : IEvent
     {
+        public string HandlerTypeName => handler.GetType().Name;
+
         public ValueTask HandleAsync(IEvent @event, CancellationToken cancellationToken) =>
             handler.HandleAsync((TEvent)@event, cancellationToken);
     }
