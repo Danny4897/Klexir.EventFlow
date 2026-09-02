@@ -13,16 +13,19 @@ public sealed class InMemoryEventBus : IEventBus
     private readonly ConcurrentDictionary<Type, IHandlerInvoker[]> _handlers = new();
     private readonly EventDispatchMode _dispatchMode;
     private readonly IDeadLetterQueue? _deadLetterQueue;
+    private readonly IIdempotencyStore? _idempotencyStore;
     private readonly EventBusResilienceOptions _resilience;
     private readonly ChannelBackpressureGate? _backpressureGate;
 
     public InMemoryEventBus(
         EventDispatchMode dispatchMode = EventDispatchMode.Sequential,
         IDeadLetterQueue? deadLetterQueue = null,
-        EventBusResilienceOptions? resilience = null)
+        EventBusResilienceOptions? resilience = null,
+        IIdempotencyStore? idempotencyStore = null)
     {
         _dispatchMode = dispatchMode;
         _deadLetterQueue = deadLetterQueue;
+        _idempotencyStore = idempotencyStore;
         _resilience = resilience ?? new EventBusResilienceOptions();
 
         if (_resilience.MaxAttempts < 1)
@@ -71,6 +74,16 @@ public sealed class InMemoryEventBus : IEventBus
 
     private async ValueTask DispatchWithResilienceAsync(IHandlerInvoker handler, IEvent @event, CancellationToken cancellationToken)
     {
+        if (_idempotencyStore is not null)
+        {
+            var idempotencyKey = $"{@event.EventId:N}:{handler.HandlerId}";
+            var firstDelivery = await _idempotencyStore.TryMarkProcessedAsync(idempotencyKey, cancellationToken).ConfigureAwait(false);
+            if (!firstDelivery)
+            {
+                return;
+            }
+        }
+
         if (_backpressureGate is not null)
         {
             await _backpressureGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
@@ -142,12 +155,19 @@ public sealed class InMemoryEventBus : IEventBus
     {
         string HandlerTypeName { get; }
 
+        /// <summary>Unique per registered handler instance; two handlers of the same type get distinct ids.</summary>
+        string HandlerId { get; }
+
         ValueTask HandleAsync(IEvent @event, CancellationToken cancellationToken);
     }
 
     private sealed class HandlerInvoker<TEvent>(IEventHandler<TEvent> handler) : IHandlerInvoker where TEvent : IEvent
     {
+        private readonly string _handlerId = Guid.NewGuid().ToString("N");
+
         public string HandlerTypeName => handler.GetType().Name;
+
+        public string HandlerId => _handlerId;
 
         public ValueTask HandleAsync(IEvent @event, CancellationToken cancellationToken) =>
             handler.HandleAsync((TEvent)@event, cancellationToken);
