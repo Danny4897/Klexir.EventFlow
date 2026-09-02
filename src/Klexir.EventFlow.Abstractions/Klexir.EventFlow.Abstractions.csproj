@@ -2,7 +2,14 @@
   <PropertyGroup>
     <AssemblyName>Klexir.EventFlow.Abstractions</AssemblyName>
     <PackageId>Klexir.EventFlow.Abstractions</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Danny4897</Authors>
     <Description>Public contracts for the Klexir strongly typed event bus.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Danny4897/Klexir.EventFlow</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Danny4897/Klexir.EventFlow</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>klexir;event-bus;event-sourcing</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
