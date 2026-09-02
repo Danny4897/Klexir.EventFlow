@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Klexir.EventFlow.Abstractions", "src\Klexir.EventFlow.Abstractions\Klexir.EventFlow.Abstractions.csproj", "{A13EAB9E-FED8-4B37-936D-52B70A078BC9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Klexir.EventFlow", "src\Klexir.EventFlow\Klexir.EventFlow.csproj", "{7F42DFE4-8679-4D68-A1CE-5154059A00E5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Klexir.EventFlow.Tests", "tests\Klexir.EventFlow.Tests\Klexir.EventFlow.Tests.csproj", "{81A2D436-DC0F-4313-A844-53CE5B38CA3B}"
+EndProject
+Global
+  GlobalSection(SolutionConfigurationPlatforms) = preSolution
+    Debug|Any CPU = Debug|Any CPU
+    Release|Any CPU = Release|Any CPU
+  EndGlobalSection
+  GlobalSection(ProjectConfigurationPlatforms) = postSolution
+    {A13EAB9E-FED8-4B37-936D-52B70A078BC9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {A13EAB9E-FED8-4B37-936D-52B70A078BC9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {A13EAB9E-FED8-4B37-936D-52B70A078BC9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+    {A13EAB9E-FED8-4B37-936D-52B70A078BC9}.Release|Any CPU.Build.0 = Release|Any CPU
+    {7F42DFE4-8679-4D68-A1CE-5154059A00E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {7F42DFE4-8679-4D68-A1CE-5154059A00E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {7F42DFE4-8679-4D68-A1CE-5154059A00E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+    {7F42DFE4-8679-4D68-A1CE-5154059A00E5}.Release|Any CPU.Build.0 = Release|Any CPU
+    {81A2D436-DC0F-4313-A844-53CE5B38CA3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+    {81A2D436-DC0F-4313-A844-53CE5B38CA3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+    {81A2D436-DC0F-4313-A844-53CE5B38CA3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+    {81A2D436-DC0F-4313-A844-53CE5B38CA3B}.Release|Any CPU.Build.0 = Release|Any CPU
+  EndGlobalSection
+EndGlobal
