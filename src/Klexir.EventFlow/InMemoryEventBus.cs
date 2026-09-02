@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Klexir.EventFlow.Abstractions;
 
 namespace Klexir.EventFlow;
@@ -10,6 +11,11 @@ namespace Klexir.EventFlow;
 /// </summary>
 public sealed class InMemoryEventBus : IEventBus
 {
+    /// <summary>Name to match against in an <see cref="ActivityListener"/> (or an OpenTelemetry SDK's AddSource) to observe publish/handle spans.</summary>
+    public const string ActivitySourceName = "Klexir.EventFlow";
+
+    private static readonly ActivitySource ActivitySource = new(ActivitySourceName);
+
     private readonly ConcurrentDictionary<Type, IHandlerInvoker[]> _handlers = new();
     private readonly EventDispatchMode _dispatchMode;
     private readonly IDeadLetterQueue? _deadLetterQueue;
@@ -53,10 +59,17 @@ public sealed class InMemoryEventBus : IEventBus
     {
         ArgumentNullException.ThrowIfNull(@event);
 
+        using var publishActivity = ActivitySource.StartActivity("EventFlow.Publish", ActivityKind.Producer);
+        publishActivity?.SetTag("klexir.event.type", typeof(TEvent).Name);
+        publishActivity?.SetTag("klexir.event.id", @event.EventId.ToString());
+
         if (!_handlers.TryGetValue(typeof(TEvent), out var handlers))
         {
+            publishActivity?.SetTag("klexir.handler.count", 0);
             return;
         }
+
+        publishActivity?.SetTag("klexir.handler.count", handlers.Length);
 
         if (_dispatchMode is EventDispatchMode.Parallel)
         {
@@ -74,13 +87,33 @@ public sealed class InMemoryEventBus : IEventBus
 
     private async ValueTask DispatchWithResilienceAsync(IHandlerInvoker handler, IEvent @event, CancellationToken cancellationToken)
     {
+        using var handleActivity = ActivitySource.StartActivity("EventFlow.Handle", ActivityKind.Consumer);
+        handleActivity?.SetTag("klexir.event.type", @event.GetType().Name);
+        handleActivity?.SetTag("klexir.event.id", @event.EventId.ToString());
+        handleActivity?.SetTag("klexir.handler.type", handler.HandlerTypeName);
+
+        try
+        {
+            var deadLetterReason = await DispatchAsync(handler, @event, cancellationToken).ConfigureAwait(false);
+            handleActivity?.SetStatus(deadLetterReason is null ? ActivityStatusCode.Ok : ActivityStatusCode.Error, deadLetterReason);
+        }
+        catch (Exception ex)
+        {
+            handleActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>Returns null on success (including an idempotency-skipped delivery), or the failure message if the handler was dead-lettered. Throws if there is no dead-letter queue to absorb the failure.</summary>
+    private async ValueTask<string?> DispatchAsync(IHandlerInvoker handler, IEvent @event, CancellationToken cancellationToken)
+    {
         if (_idempotencyStore is not null)
         {
             var idempotencyKey = $"{@event.EventId:N}:{handler.HandlerId}";
             var firstDelivery = await _idempotencyStore.TryMarkProcessedAsync(idempotencyKey, cancellationToken).ConfigureAwait(false);
             if (!firstDelivery)
             {
-                return;
+                return null;
             }
         }
 
@@ -98,7 +131,7 @@ public sealed class InMemoryEventBus : IEventBus
                 try
                 {
                     await InvokeWithTimeoutAsync(handler, @event, cancellationToken).ConfigureAwait(false);
-                    return;
+                    return null;
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                 {
@@ -120,7 +153,7 @@ public sealed class InMemoryEventBus : IEventBus
                     await _deadLetterQueue.EnqueueAsync(
                         new DeadLetterEnvelope(@event, handler.HandlerTypeName, ex.Message, attempt, DateTimeOffset.UtcNow),
                         cancellationToken).ConfigureAwait(false);
-                    return;
+                    return ex.Message;
                 }
             }
         }
