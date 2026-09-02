@@ -31,6 +31,22 @@ public sealed class InMemoryEventBusTests
         calls.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task PublishAsync_with_parallel_mode_starts_all_handlers_before_completion()
+    {
+        var started = new CountdownEvent(2);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bus = new InMemoryEventBus(EventDispatchMode.Parallel);
+        bus.Register(new BlockingHandler(started, release));
+        bus.Register(new BlockingHandler(started, release));
+
+        var publishing = bus.PublishAsync(new OrderPlaced(Guid.NewGuid(), DateTimeOffset.UtcNow)).AsTask();
+
+        started.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+        release.SetResult();
+        await publishing;
+    }
+
     private sealed record OrderPlaced(Guid EventId, DateTimeOffset OccurredAt) : IEvent;
 
     private sealed record InvoiceIssued(Guid EventId, DateTimeOffset OccurredAt) : IEvent;
@@ -41,6 +57,15 @@ public sealed class InMemoryEventBusTests
         {
             calls.Add(name);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingHandler(CountdownEvent started, TaskCompletionSource release) : IEventHandler<OrderPlaced>
+    {
+        public async ValueTask HandleAsync(OrderPlaced @event, CancellationToken cancellationToken)
+        {
+            started.Signal();
+            await release.Task.WaitAsync(cancellationToken);
         }
     }
 }

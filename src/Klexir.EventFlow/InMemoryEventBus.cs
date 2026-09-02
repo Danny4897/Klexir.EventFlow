@@ -10,6 +10,12 @@ namespace Klexir.EventFlow;
 public sealed class InMemoryEventBus : IEventBus
 {
     private readonly ConcurrentDictionary<Type, IHandlerInvoker[]> _handlers = new();
+    private readonly EventDispatchMode _dispatchMode;
+
+    public InMemoryEventBus(EventDispatchMode dispatchMode = EventDispatchMode.Sequential)
+    {
+        _dispatchMode = dispatchMode;
+    }
 
     public void Register<TEvent>(IEventHandler<TEvent> handler) where TEvent : IEvent
     {
@@ -28,6 +34,13 @@ public sealed class InMemoryEventBus : IEventBus
 
         if (!_handlers.TryGetValue(typeof(TEvent), out var handlers))
         {
+            return;
+        }
+
+        if (_dispatchMode is EventDispatchMode.Parallel)
+        {
+            await Task.WhenAll(handlers.Select(handler => handler.HandleAsync(@event, cancellationToken).AsTask()))
+                .ConfigureAwait(false);
             return;
         }
 
