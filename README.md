@@ -2,10 +2,11 @@
 
 [![CI](https://github.com/Danny4897/Klexir.EventFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/Danny4897/Klexir.EventFlow/actions/workflows/ci.yml)
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/)
+[![Docs](https://img.shields.io/badge/docs-vitepress-7c3aed.svg)](https://danny4897.github.io/Klexir.EventFlow/)
 
 Strongly typed, in-process event bus for the Klexir ecosystem — resilience, idempotency, event sourcing and tracing built in, no message broker required.
 
-> **Status: private research repo, not published to NuGet.** Reference the project directly (`ProjectReference` to `src/Klexir.EventFlow.Abstractions` and `src/Klexir.EventFlow`) until/unless it's published.
+> **Status: public research repo, not yet published to NuGet.** Reference the project directly (`ProjectReference` to `src/Klexir.EventFlow.Abstractions` and `src/Klexir.EventFlow`) until/unless it's published.
 
 ---
 
